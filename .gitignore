@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Gros fichiers SigNoise
+*.bin
+*.pkl
+*.h5
+
+# Dossiers locaux
+models/
+recordings/
+uploads/
+.env
