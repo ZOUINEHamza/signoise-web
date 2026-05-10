@@ -305,36 +305,50 @@ RECORDINGS_DIR.mkdir(exist_ok=True)
 # ─────────────────────────────────────────────────────────────────────────────
 # TÉLÉCHARGEMENT GOOGLE DRIVE
 # ─────────────────────────────────────────────────────────────────────────────
-def download_from_drive(filename, dest_dir, show_progress=True):
+def _drive_download_silent(filename, dest_dir):
+    """Télécharge depuis Google Drive SANS aucun appel Streamlit (safe dans cache_resource)."""
+    dest = Path(dest_dir) / filename
+    if dest.exists():
+        return dest, None
+    file_id = DRIVE_IDS.get(filename)
+    if not file_id:
+        return None, f"ID Drive inconnu pour {filename}"
+    Path(dest_dir).mkdir(parents=True, exist_ok=True)
+    url = f"https://drive.google.com/uc?id={file_id}"
+    try:
+        gdown.download(url, str(dest), quiet=True, fuzzy=True)
+        if dest.exists():
+            return dest, None
+        return None, f"{filename} : téléchargement échoué (fichier absent après download)"
+    except Exception as e:
+        return None, f"{filename} : {e}"
+
+def download_from_drive(filename, dest_dir):
+    """Télécharge avec spinner Streamlit — à appeler HORS de cache_resource."""
     dest = Path(dest_dir) / filename
     if dest.exists():
         return dest
-    file_id = DRIVE_IDS.get(filename)
-    if not file_id:
-        return None
-    url = f"https://drive.google.com/uc?id={file_id}"
-    try:
-        if show_progress:
-            with st.spinner(f"⬇️ Téléchargement {filename}..."):
-                gdown.download(url, str(dest), quiet=True, fuzzy=True)
-        else:
-            gdown.download(url, str(dest), quiet=True, fuzzy=True)
-        return dest if dest.exists() else None
-    except Exception as e:
-        st.error(f"Erreur téléchargement {filename} : {e}")
-        return None
+    with st.spinner(f"⬇️ Téléchargement {filename} depuis Google Drive..."):
+        result, err = _drive_download_silent(filename, dest_dir)
+    if err:
+        st.error(f"❌ {err}")
+    return result
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    """Charge les modèles une seule fois en mémoire."""
+    """Charge les modèles une seule fois en mémoire.
+    Télécharge depuis Drive si nécessaire — SANS appels Streamlit UI."""
     errors = []
     model, scaler, rfecv, gmm_db, meta = None, None, None, None, {}
 
+    # Téléchargement silencieux (pas de st.spinner ici — interdit dans cache_resource)
     for fname in ["final_model_v2.pkl", "scaler_v2.pkl", "rfecv_v2.pkl",
                   "gmm_db.pkl", "model_meta.json"]:
         dest = Path("models") / fname
         if not dest.exists():
-            download_from_drive(fname, "models", show_progress=False)
+            _, err = _drive_download_silent(fname, "models")
+            if err:
+                errors.append(f"Drive : {err}")
 
     try:
         model = joblib.load("models/final_model_v2.pkl")
@@ -929,7 +943,7 @@ with tab_inc:
 
     inconnus_path = Path("models/inconnus_db.json")
     if not inconnus_path.exists():
-        download_from_drive("inconnus_db.json", "models", show_progress=False)
+        _drive_download_silent("inconnus_db.json", "models")
 
     inconnus_db = {}
     if inconnus_path.exists():
